@@ -34,8 +34,8 @@ public class MainActivity extends Activity {
         tokenInput = findViewById(R.id.tokenInput);
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        serverUrl.setText(prefs.getString("server_url", ""));
-        tokenInput.setText(prefs.getString("token", ""));
+        serverUrl.setText(prefs.getString("server_url", "https://garden.mocatbase.cc/veglia/"));
+        tokenInput.setText(prefs.getString("token", "V0gZid9QU0xm5Y0RCqsLJQIFG2a7D94z68i0m9tjnzw"));
 
         serviceRunning = CompanionService.isRunning();
         updateUI();
