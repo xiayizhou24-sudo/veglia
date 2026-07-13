@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -38,7 +39,12 @@ public class CompanionService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         Notification notification = buildNotification();
-        startForeground(NOTIFICATION_ID, notification);
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
 
         if (intent != null) {
             serverUrl = intent.getStringExtra("server_url");

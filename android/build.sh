@@ -10,8 +10,8 @@ set -e
 # --- adjust these to your machine -------------------------------------------
 export JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/android-sdk}
-PLATFORM=$ANDROID_HOME/platforms/android-34/android.jar
-BUILD_TOOLS=$ANDROID_HOME/build-tools/34.0.0
+PLATFORM=$ANDROID_HOME/platforms/android-35/android.jar
+BUILD_TOOLS=$ANDROID_HOME/build-tools/35.0.0
 # ----------------------------------------------------------------------------
 
 PROJECT="$(cd "$(dirname "$0")" && pwd)"
@@ -29,8 +29,8 @@ echo "=== Linking resources ==="
 $BUILD_TOOLS/aapt2 link \
     -o $OUT/apk/app.unsigned.apk \
     -I $PLATFORM \
-    --min-sdk-version 30 \
-    --target-sdk-version 34 \
+    --min-sdk-version 26 \
+    --target-sdk-version 35 \
     --manifest $SRC/AndroidManifest.xml \
     --java $OUT/gen \
     --auto-add-overlay \

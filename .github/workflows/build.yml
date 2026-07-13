@@ -19,7 +19,7 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install build-tools & platform
         run: |
-          yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null
+          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" >/dev/null
       - name: Build APK
         run: |
           export ANDROID_HOME=$ANDROID_SDK_ROOT
@@ -35,7 +35,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0
+          tag_name: v1.1
           files: android/Veglia.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
