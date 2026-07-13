@@ -29,6 +29,8 @@ echo "=== Linking resources ==="
 $BUILD_TOOLS/aapt2 link \
     -o $OUT/apk/app.unsigned.apk \
     -I $PLATFORM \
+    --min-sdk-version 30 \
+    --target-sdk-version 34 \
     --manifest $SRC/AndroidManifest.xml \
     --java $OUT/gen \
     --auto-add-overlay \
