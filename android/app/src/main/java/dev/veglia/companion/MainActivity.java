@@ -23,7 +23,6 @@ public class MainActivity extends Activity {
     private Button toggleButton;
     private EditText serverUrl;
     private EditText tokenInput;
-    private boolean serviceRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,11 +38,10 @@ public class MainActivity extends Activity {
         serverUrl.setText(prefs.getString("server_url", "https://garden.mocatbase.cc/veglia/"));
         tokenInput.setText(prefs.getString("token", "V0gZid9QU0xm5Y0RCqsLJQIFG2a7D94z68i0m9tjnzw"));
 
-        serviceRunning = CompanionService.isRunning();
         updateUI();
 
         toggleButton.setOnClickListener(v -> {
-            if (serviceRunning) {
+            if (CompanionService.isRunning()) {
                 stopCompanionService();
             } else {
                 startCompanionService();
@@ -54,7 +52,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        serviceRunning = CompanionService.isRunning();
         updateUI();
     }
 
@@ -74,7 +71,6 @@ public class MainActivity extends Activity {
 
         requestIgnoreBatteryOptimization();
 
-        // Request screen capture permission
         MediaProjectionManager mpm = (MediaProjectionManager)
                 getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mpm.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
@@ -84,25 +80,22 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_MEDIA_PROJECTION) {
             if (resultCode == RESULT_OK && data != null) {
-                SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-                String url = prefs.getString("server_url", "");
-                String token = prefs.getString("token", "");
+                // Store in static holder — avoids parceling issues on Android 14+
+                ProjectionHolder.store(resultCode, data);
 
                 Intent intent = new Intent(this, CompanionService.class);
-                intent.putExtra("server_url", url);
-                intent.putExtra("token", token);
-                intent.putExtra("projection_result_code", resultCode);
-                intent.putExtra("projection_data", data);
+                intent.putExtra("start_projection", true);
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(intent);
                 } else {
                     startService(intent);
                 }
-                serviceRunning = true;
+
+                Toast.makeText(this, "Connected!", Toast.LENGTH_SHORT).show();
                 updateUI();
             } else {
-                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -125,12 +118,12 @@ public class MainActivity extends Activity {
                 .putBoolean("user_stopped", true)
                 .apply();
         stopService(new Intent(this, CompanionService.class));
-        serviceRunning = false;
         updateUI();
     }
 
     private void updateUI() {
-        if (serviceRunning) {
+        boolean running = CompanionService.isRunning();
+        if (running) {
             statusText.setText("Running");
             statusText.setTextColor(0xFF4CAF50);
             toggleButton.setText("Stop");

@@ -39,29 +39,36 @@ public class CompanionService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         createNotificationChannel();
         Notification notification = buildNotification();
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIFICATION_ID, notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            stopSelf();
+            return START_NOT_STICKY;
         }
 
-        if (intent != null) {
-            serverUrl = intent.getStringExtra("server_url");
-            token = intent.getStringExtra("token");
-
-            int resultCode = intent.getIntExtra("projection_result_code", 0);
-            Intent projData = intent.getParcelableExtra("projection_data");
-            if (resultCode != 0 && projData != null && ScreenshotService.getInstance() == null) {
-                ScreenshotService.create(this, resultCode, projData);
+        // Initialize MediaProjection from static holder (set by MainActivity)
+        if (intent != null && intent.getBooleanExtra("start_projection", false)) {
+            int rc = ProjectionHolder.getResultCode();
+            Intent pd = ProjectionHolder.getResultData();
+            if (rc != 0 && pd != null && ScreenshotService.getInstance() == null) {
+                try {
+                    ScreenshotService.create(this, rc, pd);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         }
 
-        if (serverUrl == null || token == null) {
-            SharedPreferences prefs = getSharedPreferences("veglia_companion", MODE_PRIVATE);
-            serverUrl = prefs.getString("server_url", null);
-            token = prefs.getString("token", null);
-        }
+        SharedPreferences prefs = getSharedPreferences("veglia_companion", MODE_PRIVATE);
+        serverUrl = prefs.getString("server_url", null);
+        token = prefs.getString("token", null);
+
         if (serverUrl == null || token == null || serverUrl.isEmpty() || token.isEmpty()) {
             stopSelf();
             return START_NOT_STICKY;
@@ -72,7 +79,7 @@ public class CompanionService extends Service {
             startPolling();
         }
 
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void startPolling() {
@@ -157,6 +164,7 @@ public class CompanionService extends Service {
         if (ss != null) {
             ss.destroy();
         }
+        ProjectionHolder.clear();
         super.onDestroy();
     }
 }
