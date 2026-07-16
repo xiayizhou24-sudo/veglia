@@ -41,7 +41,7 @@ public class CompanionService extends Service {
         Notification notification = buildNotification();
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -49,8 +49,14 @@ public class CompanionService extends Service {
         if (intent != null) {
             serverUrl = intent.getStringExtra("server_url");
             token = intent.getStringExtra("token");
+
+            int resultCode = intent.getIntExtra("projection_result_code", 0);
+            Intent projData = intent.getParcelableExtra("projection_data");
+            if (resultCode != 0 && projData != null && ScreenshotService.getInstance() == null) {
+                ScreenshotService.create(this, resultCode, projData);
+            }
         }
-        // On STICKY restart the intent is null: heal from saved config instead of dying.
+
         if (serverUrl == null || token == null) {
             SharedPreferences prefs = getSharedPreferences("veglia_companion", MODE_PRIVATE);
             serverUrl = prefs.getString("server_url", null);
@@ -146,6 +152,10 @@ public class CompanionService extends Service {
         running = false;
         if (pollThread != null) {
             pollThread.quitSafely();
+        }
+        ScreenshotService ss = ScreenshotService.getInstance();
+        if (ss != null) {
+            ss.destroy();
         }
         super.onDestroy();
     }

@@ -35,7 +35,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1
+          tag_name: v2.0
           files: android/Veglia.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

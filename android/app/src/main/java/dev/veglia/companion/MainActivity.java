@@ -4,6 +4,7 @@ package dev.veglia.companion;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,6 +17,7 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final String PREFS = "veglia_companion";
+    private static final int REQUEST_MEDIA_PROJECTION = 1001;
 
     private TextView statusText;
     private Button toggleButton;
@@ -64,16 +66,6 @@ public class MainActivity extends Activity {
             return;
         }
 
-        if (ScreenshotService.getInstance() == null) {
-            Toast.makeText(this, "Enable the accessibility service first", Toast.LENGTH_LONG).show();
-            try {
-                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            } catch (Exception e) {
-                Toast.makeText(this, "Settings → Accessibility → enable Veglia", Toast.LENGTH_LONG).show();
-            }
-            return;
-        }
-
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString("server_url", url)
                 .putString("token", token)
@@ -82,21 +74,39 @@ public class MainActivity extends Activity {
 
         requestIgnoreBatteryOptimization();
 
-        Intent intent = new Intent(this, CompanionService.class);
-        intent.putExtra("server_url", url);
-        intent.putExtra("token", token);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent);
-        } else {
-            startService(intent);
-        }
-        serviceRunning = true;
-        updateUI();
+        // Request screen capture permission
+        MediaProjectionManager mpm = (MediaProjectionManager)
+                getSystemService(MEDIA_PROJECTION_SERVICE);
+        startActivityForResult(mpm.createScreenCaptureIntent(), REQUEST_MEDIA_PROJECTION);
     }
 
-    // Battery-optimization exemption: the first "stay-alive" charm against the
-    // OS killing background work (declining it does not block startup).
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_MEDIA_PROJECTION) {
+            if (resultCode == RESULT_OK && data != null) {
+                SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                String url = prefs.getString("server_url", "");
+                String token = prefs.getString("token", "");
+
+                Intent intent = new Intent(this, CompanionService.class);
+                intent.putExtra("server_url", url);
+                intent.putExtra("token", token);
+                intent.putExtra("projection_result_code", resultCode);
+                intent.putExtra("projection_data", data);
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent);
+                } else {
+                    startService(intent);
+                }
+                serviceRunning = true;
+                updateUI();
+            } else {
+                Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
     private void requestIgnoreBatteryOptimization() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
         try {
@@ -120,14 +130,13 @@ public class MainActivity extends Activity {
     }
 
     private void updateUI() {
-        boolean accessibilityOk = ScreenshotService.getInstance() != null;
         if (serviceRunning) {
-            statusText.setText(accessibilityOk ? "Running" : "Running (accessibility off)");
-            statusText.setTextColor(accessibilityOk ? 0xFF4CAF50 : 0xFFFF9800);
+            statusText.setText("Running");
+            statusText.setTextColor(0xFF4CAF50);
             toggleButton.setText("Stop");
             toggleButton.setBackgroundColor(0xFFE53935);
         } else {
-            statusText.setText(accessibilityOk ? "Not connected" : "Enable accessibility first");
+            statusText.setText("Not connected");
             statusText.setTextColor(0xFF999999);
             toggleButton.setText("Start");
             toggleButton.setBackgroundColor(0xFF4A90D9);

@@ -1,117 +1,119 @@
-// Veglia · screenshot via AccessibilityService. Copyright (c) 2026 Evelyn & River — MIT License.
+// Veglia · screenshot via MediaProjection. Copyright (c) 2026 Evelyn & River — MIT License.
 package dev.veglia.companion;
 
-import android.accessibilityservice.AccessibilityService;
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.os.Build;
+import android.graphics.PixelFormat;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
-import android.os.Looper;
-import android.view.Display;
-import android.view.accessibility.AccessibilityEvent;
+import android.os.HandlerThread;
+import android.util.DisplayMetrics;
+import android.view.WindowManager;
 
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
-public class ScreenshotService extends AccessibilityService {
+public class ScreenshotService {
     private static volatile ScreenshotService instance;
     private final Executor executor = Executors.newSingleThreadExecutor();
+
+    private MediaProjection projection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader imageReader;
+    private Handler handler;
+    private HandlerThread handlerThread;
+    private int width;
+    private int height;
+    private int density;
 
     public static ScreenshotService getInstance() {
         return instance;
     }
 
-    // Watchdog: the accessibility service is kept alive by the system (it comes
-    // back after a restart). We borrow its lifespan to guard the poll service.
-    // If the system killed CompanionService, revive it — unless the user stopped it.
-    private Handler watchdog;
-    private final Runnable watchdogTick = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                SharedPreferences prefs = getSharedPreferences("veglia_companion", MODE_PRIVATE);
-                String url = prefs.getString("server_url", "");
-                String tk = prefs.getString("token", "");
-                boolean userStopped = prefs.getBoolean("user_stopped", false);
-                if (!CompanionService.isRunning() && !userStopped && !url.isEmpty() && !tk.isEmpty()) {
-                    Intent i = new Intent(ScreenshotService.this, CompanionService.class);
-                    i.putExtra("server_url", url);
-                    i.putExtra("token", tk);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(i);
-                    } else {
-                        startService(i);
-                    }
-                }
-            } catch (Exception e) {
-            }
-            if (watchdog != null) {
-                watchdog.postDelayed(this, 60000);
-            }
-        }
-    };
-
-    @Override
-    public void onServiceConnected() {
-        super.onServiceConnected();
-        instance = this;
-        watchdog = new Handler(Looper.getMainLooper());
-        watchdog.postDelayed(watchdogTick, 15000);
+    public static ScreenshotService create(Context context, int resultCode, Intent data) {
+        ScreenshotService svc = new ScreenshotService();
+        svc.init(context, resultCode, data);
+        instance = svc;
+        return svc;
     }
 
-    @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {
-    }
+    private void init(Context context, int resultCode, Intent data) {
+        MediaProjectionManager mpm = (MediaProjectionManager)
+                context.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        projection = mpm.getMediaProjection(resultCode, data);
 
-    @Override
-    public void onInterrupt() {
-    }
+        DisplayMetrics metrics = new DisplayMetrics();
+        WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+        wm.getDefaultDisplay().getRealMetrics(metrics);
 
-    @Override
-    public void onDestroy() {
-        instance = null;
-        if (watchdog != null) {
-            watchdog.removeCallbacksAndMessages(null);
-            watchdog = null;
-        }
-        super.onDestroy();
+        // Scale down to save bandwidth
+        float scale = 0.5f;
+        width = (int) (metrics.widthPixels * scale);
+        height = (int) (metrics.heightPixels * scale);
+        density = metrics.densityDpi;
+
+        handlerThread = new HandlerThread("ScreenshotThread");
+        handlerThread.start();
+        handler = new Handler(handlerThread.getLooper());
+
+        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
+        virtualDisplay = projection.createVirtualDisplay(
+                "veglia",
+                width, height, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.getSurface(),
+                null, handler);
     }
 
     public void doScreenshot(String serverUrl, String token) {
-        if (Build.VERSION.SDK_INT < 30) return;
+        executor.execute(() -> {
+            try {
+                // Small delay to ensure frame is captured
+                Thread.sleep(200);
+                Image image = imageReader.acquireLatestImage();
+                if (image == null) return;
 
-        takeScreenshot(Display.DEFAULT_DISPLAY, executor, new TakeScreenshotCallback() {
-            @Override
-            public void onSuccess(ScreenshotResult result) {
-                try {
-                    Bitmap hardwareBitmap = Bitmap.wrapHardwareBuffer(
-                            result.getHardwareBuffer(), result.getColorSpace());
-                    if (hardwareBitmap == null) return;
+                Image.Plane[] planes = image.getPlanes();
+                ByteBuffer buffer = planes[0].getBuffer();
+                int pixelStride = planes[0].getPixelStride();
+                int rowStride = planes[0].getRowStride();
+                int rowPadding = rowStride - pixelStride * width;
 
-                    Bitmap bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
-                    hardwareBitmap.recycle();
-                    result.getHardwareBuffer().close();
+                Bitmap bitmap = Bitmap.createBitmap(
+                        width + rowPadding / pixelStride, height,
+                        Bitmap.Config.ARGB_8888);
+                bitmap.copyPixelsFromBuffer(buffer);
+                image.close();
 
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out);
+                // Crop out padding
+                if (rowPadding > 0) {
+                    Bitmap cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height);
                     bitmap.recycle();
-
-                    byte[] data = out.toByteArray();
-                    if (data.length > 100) {
-                        uploadScreenshot(data, serverUrl, token);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
+                    bitmap = cropped;
                 }
-            }
 
-            @Override
-            public void onFailure(int errorCode) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out);
+                bitmap.recycle();
+
+                byte[] data = out.toByteArray();
+                if (data.length > 100) {
+                    uploadScreenshot(data, serverUrl, token);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         });
     }
@@ -136,6 +138,26 @@ public class ScreenshotService extends AccessibilityService {
             conn.disconnect();
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    public void destroy() {
+        instance = null;
+        if (virtualDisplay != null) {
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (projection != null) {
+            projection.stop();
+            projection = null;
+        }
+        if (handlerThread != null) {
+            handlerThread.quitSafely();
+            handlerThread = null;
         }
     }
 }
